@@ -500,32 +500,43 @@ function New-ActionTab {
     $timeGrid.Children.Add($timeHost) | Out-Null
     $timeBorder.Child = $timeGrid
     
-    # Wire up Fixed/Failed toggle
+    # Wire up Fixed/Failed toggle using Tag to pass references
+    $toggleState = @{
+        TabKey = $TabLabel
+        Chart = $timelineChart
+        BtnFixed = $btnFixed
+        BtnFailed = $btnFailed
+    }
+    $btnFixed.Tag = $toggleState
+    $btnFailed.Tag = $toggleState
+    
     $btnFixed.Add_Click({
-        $tk = $tabKey
-        $td = $script:TabData[$tk]
+        $s = $this.Tag
+        $td = $script:TabData[$s.TabKey]
         if ($td) {
             $td.Filter = "Fixed"
-            $btnFixed.Background = $bc.ConvertFromString("#a6e3a1")
-            $btnFixed.Foreground = $bc.ConvertFromString("#1e1e2e")
-            $btnFailed.Background = $bc.ConvertFromString("#313244")
-            $btnFailed.Foreground = $bc.ConvertFromString("#f38ba8")
-            Update-TimelineChartObj -Chart $timelineChart -Endpoints $td.Data.Endpoints -FilterStatus "Fixed"
+            $bconv = [System.Windows.Media.BrushConverter]::new()
+            $s.BtnFixed.Background = $bconv.ConvertFromString("#a6e3a1")
+            $s.BtnFixed.Foreground = $bconv.ConvertFromString("#1e1e2e")
+            $s.BtnFailed.Background = $bconv.ConvertFromString("#313244")
+            $s.BtnFailed.Foreground = $bconv.ConvertFromString("#f38ba8")
+            Update-TimelineChartObj -Chart $s.Chart -Endpoints $td.Data.Endpoints -FilterStatus "Fixed"
         }
-    }.GetNewClosure())
+    })
     
     $btnFailed.Add_Click({
-        $tk = $tabKey
-        $td = $script:TabData[$tk]
+        $s = $this.Tag
+        $td = $script:TabData[$s.TabKey]
         if ($td) {
             $td.Filter = "Failed"
-            $btnFailed.Background = $bc.ConvertFromString("#f38ba8")
-            $btnFailed.Foreground = $bc.ConvertFromString("#1e1e2e")
-            $btnFixed.Background = $bc.ConvertFromString("#313244")
-            $btnFixed.Foreground = $bc.ConvertFromString("#a6e3a1")
-            Update-TimelineChartObj -Chart $timelineChart -Endpoints $td.Data.Endpoints -FilterStatus "Failed"
+            $bconv = [System.Windows.Media.BrushConverter]::new()
+            $s.BtnFailed.Background = $bconv.ConvertFromString("#f38ba8")
+            $s.BtnFailed.Foreground = $bconv.ConvertFromString("#1e1e2e")
+            $s.BtnFixed.Background = $bconv.ConvertFromString("#313244")
+            $s.BtnFixed.Foreground = $bconv.ConvertFromString("#a6e3a1")
+            Update-TimelineChartObj -Chart $s.Chart -Endpoints $td.Data.Endpoints -FilterStatus "Failed"
         }
-    }.GetNewClosure())
+    })
     
     $chartsGrid.Children.Add($donutBorder) | Out-Null
     $chartsGrid.Children.Add($gaugeBorder) | Out-Null
