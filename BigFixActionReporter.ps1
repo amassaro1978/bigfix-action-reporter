@@ -1,10 +1,9 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    BigFix Action Reporter v5 - Pure .NET charting, no browser dependencies
+    BigFix Action Reporter v5 - Pure .NET charting
 .DESCRIPTION
     PowerShell/WPF GUI with .NET Charts for action deployment status visualization.
-    No IE11, no WebBrowser control, no security warnings.
 .NOTES
     Author: Anthony Massaro
     Date: 2026-02-12
