@@ -644,14 +644,21 @@ function Parse-StatusData {
         $name = $c.Name; if (-not $name) { $name = $c.GetAttribute("Name") }
         $status = $c.Status; if (-not $status) { $status = ($c.SelectSingleNode("Status")).'#text' }
         $mapped = switch -Wildcard ($status) {
-            "*Fixed*"        { "Fixed"; $sc.Fixed++; break }
-            "*Failed*"       { "Failed"; $sc.Failed++; break }
-            "*Running*"      { "Running"; $sc.Running++; break }
-            "*Evaluating*"   { "Running"; $sc.Running++; break }
-            "*Waiting*"      { "Pending"; $sc.Pending++; break }
-            "*Pending*"      { "Pending"; $sc.Pending++; break }
-            "*Not Relevant*" { "Not Relevant"; $sc.NotRelevant++; break }
-            "*Expired*"      { "Expired"; $sc.Expired++; break }
+            "*Fixed*"                          { "Fixed"; $sc.Fixed++; break }
+            "*executed successfully*"          { "Fixed"; $sc.Fixed++; break }
+            "*completed*"                      { "Fixed"; $sc.Fixed++; break }
+            "*succeeded*"                      { "Fixed"; $sc.Fixed++; break }
+            "*Failed*"                         { "Failed"; $sc.Failed++; break }
+            "*error*"                          { "Failed"; $sc.Failed++; break }
+            "*Running*"                        { "Running"; $sc.Running++; break }
+            "*Evaluating*"                     { "Running"; $sc.Running++; break }
+            "*executing*"                      { "Running"; $sc.Running++; break }
+            "*Waiting*"                        { "Pending"; $sc.Pending++; break }
+            "*Pending*"                        { "Pending"; $sc.Pending++; break }
+            "*locked*"                         { "Pending"; $sc.Pending++; break }
+            "*Not Relevant*"                   { "Not Relevant"; $sc.NotRelevant++; break }
+            "*not applicable*"                 { "Not Relevant"; $sc.NotRelevant++; break }
+            "*Expired*"                        { "Expired"; $sc.Expired++; break }
             default          { $status; $sc.Other++; break }
         }
         $endpoints += [PSCustomObject]@{
