@@ -6,7 +6,7 @@
     PowerShell/WPF GUI with .NET Charts for action deployment status visualization.
     No IE11, no WebBrowser control, no security warnings.
 .NOTES
-    Author: Anthony / thomasShartalter
+    Author: Anthony Massaro
     Date: 2026-02-12
 #>
 
