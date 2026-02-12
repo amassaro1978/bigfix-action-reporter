@@ -144,7 +144,7 @@ $script:Config = @{
                          ToolTip="Comma-separated for multi-action compare"/>
                 <Button x:Name="btnFetch" Content="Fetch Status" Grid.Column="2" Margin="8,0"/>
                 <Button x:Name="btnRefresh" Content="Refresh" Grid.Column="3" Margin="4,0" Background="#a6e3a1" IsEnabled="False"/>
-                <Button x:Name="btnDemo" Content="Demo Data" Grid.Column="4" Margin="4,0" Background="#cba6f7"/>
+                <!-- Demo button removed for production -->
                 <TextBlock x:Name="lblActionName" Grid.Column="5" VerticalAlignment="Center" 
                            Margin="12,0" FontSize="13" Foreground="#a6adc8" TextTrimming="CharacterEllipsis"/>
                 <Button x:Name="btnExport" Content="Export CSV" Grid.Column="6" Background="#f9e2af" IsEnabled="False"/>
@@ -779,32 +779,7 @@ function Update-TimelineChartObj {
 
 # ─── Event Handlers ───────────────────────────────────────────────────────────
 
-$btnDemo.Add_Click({
-    $lblStatus.Text = "Generating demo data..."
-    $window.Dispatcher.Invoke([Action]{}, [System.Windows.Threading.DispatcherPriority]::Render)
-    
-    $tabActions.Items.Clear()
-    $script:TabData = @{}
-    
-    $demos = @(
-        @{Label="Wave 1 - East Coast"; Name="Chrome 122.0 Update - East Coast (200 endpoints)"; Count=200},
-        @{Label="Wave 2 - West Coast"; Name="Chrome 122.0 Update - West Coast (150 endpoints)"; Count=150},
-        @{Label="Wave 3 - EMEA"; Name="Chrome 122.0 Update - EMEA (100 endpoints)"; Count=100}
-    )
-    
-    foreach ($demo in $demos) {
-        $data = Get-DemoData -Label $demo.Name -Count $demo.Count
-        $tab = New-ActionTab -TabLabel $demo.Label -ActionLabel $demo.Name -Data $data
-        $tabActions.Items.Add($tab) | Out-Null
-    }
-    
-    $tabActions.SelectedIndex = 0
-    $txtActionId.Text = "DEMO-001, DEMO-002, DEMO-003"
-    $lblActionName.Text = "3 actions loaded"
-    $btnExport.IsEnabled = $true
-    $lblStatus.Text = "[OK] Demo: 3 deployment waves loaded -- click tabs to compare"
-    $lblLastRefresh.Text = "Last refresh: $(Get-Date -Format 'HH:mm:ss')"
-})
+# Demo button removed for production
 
 $btnConnect.Add_Click({
     try {
