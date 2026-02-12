@@ -216,7 +216,7 @@ function New-DonutChart {
 
     $area = New-Object System.Windows.Forms.DataVisualization.Charting.ChartArea "DonutArea"
     $area.BackColor = [System.Drawing.Color]::Transparent
-    $area.Position = New-Object System.Windows.Forms.DataVisualization.Charting.ElementPosition(2, 2, 96, 80)
+    $area.Position = New-Object System.Windows.Forms.DataVisualization.Charting.ElementPosition(2, 2, 96, 68)
     $chart.ChartAreas.Add($area)
 
     $series = New-Object System.Windows.Forms.DataVisualization.Charting.Series "Status"
