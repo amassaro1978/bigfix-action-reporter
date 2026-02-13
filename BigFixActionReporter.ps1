@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    BigFix Action Reporter v5 - Pure .NET charting
+    BigFix Action Reporter v6 - Weekly Metrics + Pure .NET charting
 .DESCRIPTION
     PowerShell/WPF GUI with .NET Charts for action deployment status visualization.
 .NOTES
@@ -20,6 +20,36 @@ Add-Type -AssemblyName WindowsFormsIntegration
 $script:Config = @{
     ServerUrl = ""; Username = ""; Password = ""; ApiBase = "/api"
 }
+
+# ─── CMTrace Logging ─────────────────────────────────────────────────────────
+$script:LogFile = "C:\temp\BigFixActionReporter.log"
+$script:LogComponent = "BigFixActionReporter"
+
+function Write-CMLog {
+    param(
+        [string]$Message,
+        [ValidateSet("Info","Warning","Error")]
+        [string]$Severity = "Info"
+    )
+    $sevInt = switch ($Severity) { "Info" { 1 } "Warning" { 2 } "Error" { 3 } }
+    $time = Get-Date -Format "HH:mm:ss.fff"
+    $date = Get-Date -Format "MM-dd-yyyy"
+    $tzOffset = [System.TimeZone]::CurrentTimeZone.GetUtcOffset([datetime]::Now).TotalMinutes
+    $timeStr = "$time+$($tzOffset.ToString('000'))"
+    
+    # CMTrace format: <![LOG[message]LOG]!><time="HH:mm:ss.fff+zzz" date="MM-dd-yyyy" component="comp" context="" type="1" thread="tid" file="file">
+    $logLine = "<![LOG[$Message]LOG]!><time=`"$timeStr`" date=`"$date`" component=`"$script:LogComponent`" context=`"`" type=`"$sevInt`" thread=`"$([System.Threading.Thread]::CurrentThread.ManagedThreadId)`" file=`"BigFixActionReporter.ps1`">"
+    
+    try {
+        $dir = Split-Path $script:LogFile -Parent
+        if (-not (Test-Path $dir)) { New-Item -Path $dir -ItemType Directory -Force | Out-Null }
+        Add-Content -Path $script:LogFile -Value $logLine -Encoding UTF8 -ErrorAction Stop
+    } catch {
+        # Silently fail if logging itself breaks
+    }
+}
+
+Write-CMLog "BigFix Action Reporter v6 started"
 
 # ─── XAML UI ─────────────────────────────────────────────────────────────────
 [xml]$XAML = @"
@@ -97,7 +127,7 @@ $script:Config = @{
                     <DropShadowEffect Color="#89b4fa" BlurRadius="20" ShadowDepth="0" Opacity="0.5"/>
                 </TextBlock.Effect>
             </TextBlock>
-            <TextBlock Text="  v5" FontSize="14" Foreground="#6c7086" VerticalAlignment="Bottom" Margin="0,0,0,4"/>
+            <TextBlock Text="  v6" FontSize="14" Foreground="#6c7086" VerticalAlignment="Bottom" Margin="0,0,0,4"/>
         </StackPanel>
 
         <!-- Connection -->
@@ -143,7 +173,7 @@ $script:Config = @{
                          ToolTip="Comma-separated for multi-action compare"/>
                 <Button x:Name="btnFetch" Content="Fetch Status" Grid.Column="2" Margin="8,0"/>
                 <Button x:Name="btnRefresh" Content="Refresh" Grid.Column="3" Margin="4,0" Background="#a6e3a1" IsEnabled="False"/>
-                <!-- Demo button removed for production -->
+                <Button x:Name="btnWeekly" Content="Weekly Report" Grid.Column="4" Margin="4,0" Background="#cba6f7" Foreground="#1e1e2e"/>
                 <TextBlock x:Name="lblActionName" Grid.Column="5" VerticalAlignment="Center" 
                            Margin="12,0" FontSize="13" Foreground="#a6adc8" TextTrimming="CharacterEllipsis"/>
                 <Button x:Name="btnExport" Content="Export CSV" Grid.Column="6" Background="#f9e2af" IsEnabled="False"/>
@@ -570,6 +600,15 @@ function New-ActionTab {
     $dg.HorizontalGridLinesBrush = $bc.ConvertFromString("#232336")
     $dg.HeadersVisibility = "Column"
     
+    $headerStyle = New-Object System.Windows.Style([System.Windows.Controls.Primitives.DataGridColumnHeader])
+    $headerStyle.Setters.Add((New-Object System.Windows.Setter([System.Windows.Controls.Control]::BackgroundProperty, $bc.ConvertFromString("#1e293b"))))
+    $headerStyle.Setters.Add((New-Object System.Windows.Setter([System.Windows.Controls.Control]::ForegroundProperty, $bc.ConvertFromString("#e2e8f0"))))
+    $headerStyle.Setters.Add((New-Object System.Windows.Setter([System.Windows.Controls.Control]::FontWeightProperty, [System.Windows.FontWeights]::SemiBold)))
+    $headerStyle.Setters.Add((New-Object System.Windows.Setter([System.Windows.Controls.Control]::PaddingProperty, [System.Windows.Thickness]::new(8,6,8,6))))
+    $headerStyle.Setters.Add((New-Object System.Windows.Setter([System.Windows.Controls.Control]::BorderBrushProperty, $bc.ConvertFromString("#313244"))))
+    $headerStyle.Setters.Add((New-Object System.Windows.Setter([System.Windows.Controls.Control]::BorderThicknessProperty, [System.Windows.Thickness]::new(0,0,1,1))))
+    $dg.ColumnHeaderStyle = $headerStyle
+    
     @(
         @{H="Computer Name"; B="ComputerName"; W="*"},
         @{H="Status"; B="Status"; W="100"},
@@ -614,6 +653,7 @@ function Invoke-BigFixAPI {
     param([string]$Endpoint)
     $uri = "$($txtServer.Text.TrimEnd('/'))$($script:Config.ApiBase)$Endpoint"
     $cred = Get-BigFixCredential
+    Write-CMLog "API GET $uri"
     try {
         if (-not ([System.Management.Automation.PSTypeName]'TrustAllCertsPolicy').Type) {
             Add-Type @"
@@ -626,12 +666,18 @@ public class TrustAllCertsPolicy : ICertificatePolicy {
         }
         [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
         [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
-        return Invoke-RestMethod -Uri $uri -Credential $cred -Method Get -ContentType "application/xml"
-    } catch { throw "API Error: $($_.Exception.Message)" }
+        $result = Invoke-RestMethod -Uri $uri -Credential $cred -Method Get -ContentType "application/xml"
+        Write-CMLog "API GET $Endpoint - OK"
+        return $result
+    } catch {
+        Write-CMLog "API GET $Endpoint - FAILED: $($_.Exception.Message)" -Severity Error
+        throw "API Error: $($_.Exception.Message)"
+    }
 }
 
 function Get-ActionStatus {
     param([string]$ActionId)
+    Write-CMLog "Fetching action status for ID: $ActionId"
     $lblStatus.Text = "Fetching action $ActionId..."
     $window.Dispatcher.Invoke([Action]{}, [System.Windows.Threading.DispatcherPriority]::Render)
     $title = "(unknown)"
@@ -680,42 +726,7 @@ function Parse-StatusData {
     return @{ Endpoints=$endpoints; StatusCounts=$sc; Total=$endpoints.Count; Title="" }
 }
 
-# ─── Demo Data ────────────────────────────────────────────────────────────────
-
-function Get-DemoData {
-    param([string]$Label = "Windows 11 24H2 Feature Update", [int]$Count = 150)
-    $statuses = @('Fixed','Fixed','Fixed','Fixed','Fixed','Fixed','Fixed',
-                  'Failed','Failed','Running','Running','Running',
-                  'Pending','Pending','Not Relevant','Not Relevant','Expired')
-    $prefixes = @('WKS','SRV','LAP','DTK','VDI')
-    $sites = @('NYC','CHI','DAL','SEA','ATL','MIA','DEN','BOS','PHX','SFO')
-    $baseTime = (Get-Date).AddDays(-3)
-    $endpoints = @()
-    for ($i = 1; $i -le $Count; $i++) {
-        $status = $statuses[(Get-Random -Maximum $statuses.Count)]
-        $name = "$($prefixes[(Get-Random -Maximum $prefixes.Count)])-$($sites[(Get-Random -Maximum $sites.Count)])-$('{0:D4}' -f $i)"
-        $start = $baseTime.AddMinutes((Get-Random -Minimum 0 -Maximum 4320))
-        $end = $null
-        if ($status -eq 'Fixed') { $end = $start.AddMinutes((Get-Random -Minimum 2 -Maximum 180)).ToString("yyyy-MM-dd HH:mm:ss") }
-        elseif ($status -eq 'Failed') { $end = $start.AddMinutes((Get-Random -Minimum 1 -Maximum 60)).ToString("yyyy-MM-dd HH:mm:ss") }
-        $endpoints += [PSCustomObject]@{
-            ComputerName=$name; Status=$status; StartTime=$start.ToString("yyyy-MM-dd HH:mm:ss")
-            EndTime=$end
-            ApplyCount=$(if($status -eq 'Fixed'){(Get-Random -Minimum 1 -Maximum 4).ToString()}else{"0"})
-            RetryCount=$(if($status -eq 'Failed'){(Get-Random -Minimum 1 -Maximum 5).ToString()}else{"0"})
-        }
-    }
-    $sc = @{
-        Fixed=($endpoints|Where-Object Status -eq 'Fixed').Count
-        Failed=($endpoints|Where-Object Status -eq 'Failed').Count
-        Running=($endpoints|Where-Object Status -eq 'Running').Count
-        Pending=($endpoints|Where-Object Status -eq 'Pending').Count
-        NotRelevant=($endpoints|Where-Object Status -eq 'Not Relevant').Count
-        Expired=($endpoints|Where-Object Status -eq 'Expired').Count
-        Other=0
-    }
-    return @{ Endpoints=$endpoints; StatusCounts=$sc; Total=$endpoints.Count; Title=$Label }
-}
+# ─── (Demo data removed for production) ───────────────────────────────────────
 
 # ─── Chart Update Functions ───────────────────────────────────────────────────
 
@@ -794,18 +805,688 @@ function Update-TimelineChartObj {
     $tArea.AxisX.Interval = [Math]::Max(1, [Math]::Floor($buckets / 8))
 }
 
-# ─── Event Handlers ───────────────────────────────────────────────────────────
+# ─── Weekly Report Functions ───────────────────────────────────────────────────
 
-# Demo button removed for production
+function Get-SiteActions {
+    param([string]$SiteName, [int]$DaysBack = 7)
+    $lblStatus.Text = "Querying actions from site '$SiteName' (last $DaysBack days)..."
+    $window.Dispatcher.Invoke([Action]{}, [System.Windows.Threading.DispatcherPriority]::Render)
+    
+    # Use Session Relevance to filter server-side — only returns matching actions
+    $relevance = @"
+(id of it, name of it) of bes actions whose (name of it starts with "Update:" AND site of source fixlet of it as string contains "$SiteName" AND time issued of it > (now - $DaysBack * day))
+"@
+    
+    $allActions = @()
+    
+    try {
+        $result = Invoke-BigFixRelevance $relevance
+        foreach ($row in $result) {
+            $id = $row[0]
+            $name = $row[1]
+            
+            # Filter by "Update: X: Y" pattern
+            if ($name -notmatch '^Update:\s*.+:\s*.+') { continue }
+            
+            # Parse the action name: "Update: Package Name 1.2.3: Phase"
+            $parts = $name -split ':\s*', 3
+            $package = if ($parts.Count -ge 2) { $parts[1].Trim() } else { $name }
+            $phase = if ($parts.Count -ge 3) { $parts[2].Trim() } else { "Unknown" }
+            
+            $allActions += [PSCustomObject]@{
+                Id = $id
+                Name = $name
+                Package = $package
+                Phase = $phase
+                Site = $SiteName
+            }
+        }
+    } catch {
+        # Fallback: try alternate relevance syntax
+        $lblStatus.Text = "First query failed, trying alternate..."
+        $window.Dispatcher.Invoke([Action]{}, [System.Windows.Threading.DispatcherPriority]::Render)
+        
+        $relevance2 = @"
+(id of it, name of it) of bes actions whose (name of it starts with "Update:" AND time issued of it > (now - $DaysBack * day))
+"@
+        $result = Invoke-BigFixRelevance $relevance2
+        foreach ($row in $result) {
+            $id = $row[0]
+            $name = $row[1]
+            if ($name -notmatch '^Update:\s*.+:\s*.+') { continue }
+            $parts = $name -split ':\s*', 3
+            $package = if ($parts.Count -ge 2) { $parts[1].Trim() } else { $name }
+            $phase = if ($parts.Count -ge 3) { $parts[2].Trim() } else { "Unknown" }
+            $allActions += [PSCustomObject]@{
+                Id = $id; Name = $name; Package = $package; Phase = $phase; Site = $SiteName
+            }
+        }
+    }
+    
+    return $allActions
+}
+
+function Invoke-BigFixRelevance {
+    param([string]$Relevance)
+    $uri = "$($txtServer.Text.TrimEnd('/'))$($script:Config.ApiBase)/query"
+    $cred = Get-BigFixCredential
+    
+    Write-CMLog "API POST /query - Relevance: $Relevance"
+    $body = "relevance=$([System.Uri]::EscapeDataString($Relevance))"
+    
+    try {
+        if (-not ([System.Management.Automation.PSTypeName]'TrustAllCertsPolicy').Type) {
+            Add-Type @"
+using System.Net;
+using System.Security.Cryptography.X509Certificates;
+public class TrustAllCertsPolicy : ICertificatePolicy {
+    public bool CheckValidationResult(ServicePoint sp, X509Certificate cert, WebRequest req, int problem) { return true; }
+}
+"@
+        }
+        [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+        
+        $response = Invoke-RestMethod -Uri $uri -Credential $cred -Method Post -Body $body -ContentType "application/x-www-form-urlencoded" -TimeoutSec 30
+        Write-CMLog "API POST /query - OK"
+        
+        # Parse relevance response — returns tuples as Answer elements
+        $results = @()
+        $answers = $response.BESAPI.Query.Result.Answer
+        if (-not $answers) { $answers = $response.SelectNodes("//Answer") }
+        
+        foreach ($answer in $answers) {
+            $tuple = $answer.'#text'
+            if (-not $tuple) { $tuple = $answer.InnerText }
+            if (-not $tuple) { continue }
+            
+            # Parse "( id, name )" tuple format
+            $tuple = $tuple.Trim()
+            if ($tuple.StartsWith("(")) { $tuple = $tuple.Substring(1) }
+            if ($tuple.EndsWith(")")) { $tuple = $tuple.Substring(0, $tuple.Length - 1) }
+            
+            # Split on first comma only (name may contain commas)
+            $commaIdx = $tuple.IndexOf(",")
+            if ($commaIdx -gt 0) {
+                $id = $tuple.Substring(0, $commaIdx).Trim()
+                $name = $tuple.Substring($commaIdx + 1).Trim()
+                # Remove surrounding quotes if present
+                if ($name.StartsWith('"') -and $name.EndsWith('"')) {
+                    $name = $name.Substring(1, $name.Length - 2)
+                }
+                $results += ,@($id, $name)
+            }
+        }
+        return $results
+    } catch {
+        Write-CMLog "API POST /query - FAILED: $($_.Exception.Message)" -Severity Error
+        throw "Relevance query failed: $($_.Exception.Message)"
+    }
+}
+
+function Build-WeeklyReport {
+    param($Actions, [string]$SiteName, [int]$DaysBack)
+    
+    $totalActions = $Actions.Count
+    $results = @()
+    $i = 0
+    
+    foreach ($action in $Actions) {
+        $i++
+        $lblStatus.Text = "Fetching status for action $i/$totalActions`: $($action.Name)..."
+        $window.Dispatcher.Invoke([Action]{}, [System.Windows.Threading.DispatcherPriority]::Render)
+        
+        try {
+            $data = Get-ActionStatus -ActionId $action.Id
+            $relevant = $data.Total - $data.StatusCounts.NotRelevant
+            $pct = if ($relevant -gt 0) { [math]::Round(($data.StatusCounts.Fixed / $relevant) * 100, 1) } else { 0 }
+            
+            $results += [PSCustomObject]@{
+                ActionId = $action.Id
+                Name = $action.Name
+                Package = $action.Package
+                Phase = $action.Phase
+                Total = $data.Total
+                Relevant = $relevant
+                Fixed = $data.StatusCounts.Fixed
+                Failed = $data.StatusCounts.Failed
+                Running = $data.StatusCounts.Running
+                Pending = $data.StatusCounts.Pending
+                Expired = $data.StatusCounts.Expired
+                NotRelevant = $data.StatusCounts.NotRelevant
+                SuccessRate = $pct
+                Endpoints = $data.Endpoints
+            }
+        } catch {
+            $results += [PSCustomObject]@{
+                ActionId = $action.Id; Name = $action.Name; Package = $action.Package; Phase = $action.Phase
+                Total = 0; Relevant = 0; Fixed = 0; Failed = 0; Running = 0; Pending = 0; Expired = 0; NotRelevant = 0
+                SuccessRate = 0; Endpoints = @()
+            }
+        }
+    }
+    
+    return $results
+}
+
+function New-WeeklyBarChart {
+    $chart = New-Object System.Windows.Forms.DataVisualization.Charting.Chart
+    $chart.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#141425")
+    $chart.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $chart.AntiAliasing = [System.Windows.Forms.DataVisualization.Charting.AntiAliasingStyles]::All
+
+    $area = New-Object System.Windows.Forms.DataVisualization.Charting.ChartArea "BarArea"
+    $area.BackColor = [System.Drawing.Color]::Transparent
+    $area.AxisX.LabelStyle.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#bac2de")
+    $area.AxisX.LabelStyle.Font = New-Object System.Drawing.Font("Segoe UI", 8)
+    $area.AxisX.LabelStyle.Angle = -30
+    $area.AxisX.MajorGrid.Enabled = $false
+    $area.AxisX.LineColor = [System.Drawing.ColorTranslator]::FromHtml("#313244")
+    $area.AxisX.MajorTickMark.LineColor = [System.Drawing.ColorTranslator]::FromHtml("#313244")
+    $area.AxisX.Interval = 1
+    $area.AxisY.LabelStyle.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#6c7086")
+    $area.AxisY.LabelStyle.Font = New-Object System.Drawing.Font("Segoe UI", 8)
+    $area.AxisY.MajorGrid.LineColor = [System.Drawing.ColorTranslator]::FromHtml("#232346")
+    $area.AxisY.MajorGrid.LineDashStyle = [System.Windows.Forms.DataVisualization.Charting.ChartDashStyle]::Dot
+    $area.AxisY.LineColor = [System.Drawing.ColorTranslator]::FromHtml("#313244")
+    $area.AxisY.Title = "Endpoints"
+    $area.AxisY.TitleForeColor = [System.Drawing.ColorTranslator]::FromHtml("#6c7086")
+    $area.AxisY.TitleFont = New-Object System.Drawing.Font("Segoe UI", 9)
+    $area.AxisY.Minimum = 0
+    $chart.ChartAreas.Add($area)
+
+    $fixedS = New-Object System.Windows.Forms.DataVisualization.Charting.Series "Fixed"
+    $fixedS.ChartType = [System.Windows.Forms.DataVisualization.Charting.SeriesChartType]::StackedColumn
+    $fixedS.Color = [System.Drawing.ColorTranslator]::FromHtml("#a6e3a1")
+    $fixedS.SetCustomProperty("PointWidth", "0.6")
+    $chart.Series.Add($fixedS)
+
+    $failedS = New-Object System.Windows.Forms.DataVisualization.Charting.Series "Failed"
+    $failedS.ChartType = [System.Windows.Forms.DataVisualization.Charting.SeriesChartType]::StackedColumn
+    $failedS.Color = [System.Drawing.ColorTranslator]::FromHtml("#f38ba8")
+    $failedS.SetCustomProperty("PointWidth", "0.6")
+    $chart.Series.Add($failedS)
+
+    $pendingS = New-Object System.Windows.Forms.DataVisualization.Charting.Series "Pending"
+    $pendingS.ChartType = [System.Windows.Forms.DataVisualization.Charting.SeriesChartType]::StackedColumn
+    $pendingS.Color = [System.Drawing.ColorTranslator]::FromHtml("#89b4fa")
+    $pendingS.SetCustomProperty("PointWidth", "0.6")
+    $chart.Series.Add($pendingS)
+
+    $legend = New-Object System.Windows.Forms.DataVisualization.Charting.Legend "BarLegend"
+    $legend.BackColor = [System.Drawing.Color]::Transparent
+    $legend.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#bac2de")
+    $legend.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+    $legend.Docking = [System.Windows.Forms.DataVisualization.Charting.Docking]::Bottom
+    $legend.Alignment = [System.Drawing.StringAlignment]::Center
+    $chart.Legends.Add($legend)
+
+    return $chart
+}
+
+function New-WeeklyReportTab {
+    param($Results, [string]$SiteName, [int]$DaysBack, [string]$DateRange = "")
+    
+    $bc = [System.Windows.Media.BrushConverter]::new()
+    
+    $tabItem = New-Object System.Windows.Controls.TabItem
+    $tabItem.Header = "Weekly Report"
+    $tabItem.Background = $bc.ConvertFromString("#1a1a2e")
+    $tabItem.Foreground = $bc.ConvertFromString("#cba6f7")
+    
+    $mainGrid = New-Object System.Windows.Controls.Grid
+    $mainGrid.Background = $bc.ConvertFromString("#0f0f1a")
+    
+    $row1 = New-Object System.Windows.Controls.RowDefinition; $row1.Height = [System.Windows.GridLength]::new(100)
+    $row2 = New-Object System.Windows.Controls.RowDefinition; $row2.Height = [System.Windows.GridLength]::new(350)
+    $row3 = New-Object System.Windows.Controls.RowDefinition; $row3.Height = [System.Windows.GridLength]::new(1, [System.Windows.GridUnitType]::Star)
+    $mainGrid.RowDefinitions.Add($row1)
+    $mainGrid.RowDefinitions.Add($row2)
+    $mainGrid.RowDefinitions.Add($row3)
+    
+    # ── Summary Stats Row ──
+    $statsPanel = New-Object System.Windows.Controls.WrapPanel
+    $statsPanel.Margin = [System.Windows.Thickness]::new(0,0,0,10)
+    [System.Windows.Controls.Grid]::SetRow($statsPanel, 0)
+    
+    $totalFixed = ($Results | Measure-Object -Property Fixed -Sum).Sum
+    $totalFailed = ($Results | Measure-Object -Property Failed -Sum).Sum
+    $totalRelevant = ($Results | Measure-Object -Property Relevant -Sum).Sum
+    $totalEndpoints = ($Results | Measure-Object -Property Total -Sum).Sum
+    $overallRate = if ($totalRelevant -gt 0) { [math]::Round(($totalFixed / $totalRelevant) * 100, 1) } else { 0 }
+    $rateColor = if ($overallRate -ge 80) { "#a6e3a1" } elseif ($overallRate -ge 50) { "#f9e2af" } else { "#f38ba8" }
+    
+    $statCards = @(
+        @{Label="ACTIONS PUSHED"; Value=$Results.Count.ToString(); Color="#89b4fa"},
+        @{Label="TOTAL ENDPOINTS"; Value=$totalEndpoints.ToString(); Color="#cba6f7"},
+        @{Label="SUCCESSFUL"; Value=$totalFixed.ToString(); Color="#a6e3a1"},
+        @{Label="FAILED"; Value=$totalFailed.ToString(); Color="#f38ba8"},
+        @{Label="OVERALL SUCCESS"; Value="$overallRate%"; Color=$rateColor}
+    )
+    
+    foreach ($sc in $statCards) {
+        $cardBorder = New-Object System.Windows.Controls.Border
+        $cardBorder.Background = $bc.ConvertFromString("#141425")
+        $cardBorder.CornerRadius = [System.Windows.CornerRadius]::new(10)
+        $cardBorder.Padding = [System.Windows.Thickness]::new(20,12,20,12)
+        $cardBorder.Margin = [System.Windows.Thickness]::new(0,0,10,0)
+        $cardBorder.BorderBrush = $bc.ConvertFromString("#232346")
+        $cardBorder.BorderThickness = [System.Windows.Thickness]::new(1)
+        $cardBorder.MinWidth = 180
+        
+        $cardStack = New-Object System.Windows.Controls.StackPanel
+        
+        $cardLabel = New-Object System.Windows.Controls.TextBlock
+        $cardLabel.Text = $sc.Label; $cardLabel.FontSize = 10; $cardLabel.FontWeight = "SemiBold"
+        $cardLabel.Foreground = $bc.ConvertFromString("#6c7086")
+        $cardLabel.FontFamily = New-Object System.Windows.Media.FontFamily("Segoe UI")
+        
+        $cardValue = New-Object System.Windows.Controls.TextBlock
+        $cardValue.Text = $sc.Value; $cardValue.FontSize = 32; $cardValue.FontWeight = "ExtraBold"
+        $cardValue.Foreground = $bc.ConvertFromString($sc.Color)
+        $cardValue.FontFamily = New-Object System.Windows.Media.FontFamily("Segoe UI")
+        $cardValue.Effect = New-Object System.Windows.Media.Effects.DropShadowEffect
+        $cardValue.Effect.Color = [System.Windows.Media.ColorConverter]::ConvertFromString($sc.Color)
+        $cardValue.Effect.BlurRadius = 15; $cardValue.Effect.ShadowDepth = 0; $cardValue.Effect.Opacity = 0.4
+        
+        $cardStack.Children.Add($cardLabel) | Out-Null
+        $cardStack.Children.Add($cardValue) | Out-Null
+        $cardBorder.Child = $cardStack
+        $statsPanel.Children.Add($cardBorder) | Out-Null
+    }
+    
+    # ── Charts Row ──
+    $chartsGrid = New-Object System.Windows.Controls.Grid
+    [System.Windows.Controls.Grid]::SetRow($chartsGrid, 1)
+    $col1 = New-Object System.Windows.Controls.ColumnDefinition; $col1.Width = [System.Windows.GridLength]::new(1, [System.Windows.GridUnitType]::Star)
+    $col2 = New-Object System.Windows.Controls.ColumnDefinition; $col2.Width = [System.Windows.GridLength]::new(1, [System.Windows.GridUnitType]::Star)
+    $chartsGrid.ColumnDefinitions.Add($col1)
+    $chartsGrid.ColumnDefinitions.Add($col2)
+    
+    # Stacked bar chart — per-action breakdown
+    $barBorder = New-Object System.Windows.Controls.Border
+    $barBorder.Background = $bc.ConvertFromString("#141425")
+    $barBorder.CornerRadius = [System.Windows.CornerRadius]::new(10)
+    $barBorder.Margin = [System.Windows.Thickness]::new(0,0,5,0)
+    $barBorder.BorderBrush = $bc.ConvertFromString("#232346")
+    $barBorder.BorderThickness = [System.Windows.Thickness]::new(1)
+    [System.Windows.Controls.Grid]::SetColumn($barBorder, 0)
+    
+    $barGrid = New-Object System.Windows.Controls.Grid
+    $barTitle = New-Object System.Windows.Controls.TextBlock
+    $barTitle.Text = "PER-PACKAGE BREAKDOWN"; $barTitle.FontSize = 11; $barTitle.FontWeight = "Bold"
+    $barTitle.Foreground = $bc.ConvertFromString("#89b4fa")
+    $barTitle.Margin = [System.Windows.Thickness]::new(14,10,0,0)
+    $barTitle.VerticalAlignment = "Top"; $barTitle.FontFamily = New-Object System.Windows.Media.FontFamily("Segoe UI")
+    
+    $barHost = New-Object System.Windows.Forms.Integration.WindowsFormsHost
+    $barHost.Margin = [System.Windows.Thickness]::new(8,32,8,8)
+    $barChart = New-WeeklyBarChart
+    
+    # Group by package and populate chart
+    $packages = $Results | Group-Object Package
+    foreach ($pkg in $packages) {
+        $pkgFixed = ($pkg.Group | Measure-Object -Property Fixed -Sum).Sum
+        $pkgFailed = ($pkg.Group | Measure-Object -Property Failed -Sum).Sum
+        $pkgPending = ($pkg.Group | Measure-Object -Property Pending -Sum).Sum
+        # Truncate long package names
+        $label = if ($pkg.Name.Length -gt 25) { $pkg.Name.Substring(0,22) + "..." } else { $pkg.Name }
+        $barChart.Series["Fixed"].Points.AddXY($label, $pkgFixed) | Out-Null
+        $barChart.Series["Failed"].Points.AddXY($label, $pkgFailed) | Out-Null
+        $barChart.Series["Pending"].Points.AddXY($label, $pkgPending) | Out-Null
+    }
+    
+    $barHost.Child = $barChart
+    $barGrid.Children.Add($barTitle) | Out-Null
+    $barGrid.Children.Add($barHost) | Out-Null
+    $barBorder.Child = $barGrid
+    
+    # Package Breakdown Panel (replaces donut)
+    $pkgBorder = New-Object System.Windows.Controls.Border
+    $pkgBorder.Background = $bc.ConvertFromString("#141425")
+    $pkgBorder.CornerRadius = [System.Windows.CornerRadius]::new(10)
+    $pkgBorder.Margin = [System.Windows.Thickness]::new(5,0,0,0)
+    $pkgBorder.BorderBrush = $bc.ConvertFromString("#232346")
+    $pkgBorder.BorderThickness = [System.Windows.Thickness]::new(1)
+    [System.Windows.Controls.Grid]::SetColumn($pkgBorder, 1)
+    
+    $pkgGrid = New-Object System.Windows.Controls.Grid
+    $pkgTitle = New-Object System.Windows.Controls.TextBlock
+    $pkgTitle.Text = "PER-ACTION BREAKDOWN"; $pkgTitle.FontSize = 11; $pkgTitle.FontWeight = "Bold"
+    $pkgTitle.Foreground = $bc.ConvertFromString("#cba6f7")
+    $pkgTitle.Margin = [System.Windows.Thickness]::new(14,10,0,0)
+    $pkgTitle.VerticalAlignment = "Top"; $pkgTitle.FontFamily = New-Object System.Windows.Media.FontFamily("Segoe UI")
+    
+    $pkgScroll = New-Object System.Windows.Controls.ScrollViewer
+    $pkgScroll.Margin = [System.Windows.Thickness]::new(8,32,8,8)
+    $pkgScroll.VerticalScrollBarVisibility = "Auto"
+    
+    $pkgStack = New-Object System.Windows.Controls.StackPanel
+    
+    # Group results by package, show each action under its package
+    $pkgGroups = $Results | Group-Object Package | Sort-Object { ($_.Group | Measure-Object -Property Relevant -Sum).Sum } -Descending
+    
+    foreach ($pkg in $pkgGroups) {
+        # Package header
+        $pkgHeaderBorder = New-Object System.Windows.Controls.Border
+        $pkgHeaderBorder.Background = $bc.ConvertFromString("#1a1a2e")
+        $pkgHeaderBorder.CornerRadius = [System.Windows.CornerRadius]::new(6)
+        $pkgHeaderBorder.Padding = [System.Windows.Thickness]::new(10,6,10,6)
+        $pkgHeaderBorder.Margin = [System.Windows.Thickness]::new(0,6,0,2)
+        
+        $pkgHeaderText = New-Object System.Windows.Controls.TextBlock
+        $pkgHeaderText.Text = $pkg.Name
+        $pkgHeaderText.FontSize = 12; $pkgHeaderText.FontWeight = "SemiBold"
+        $pkgHeaderText.Foreground = $bc.ConvertFromString("#e2e8f0")
+        $pkgHeaderText.FontFamily = New-Object System.Windows.Media.FontFamily("Segoe UI")
+        $pkgHeaderText.TextTrimming = "CharacterEllipsis"
+        $pkgHeaderBorder.Child = $pkgHeaderText
+        $pkgStack.Children.Add($pkgHeaderBorder) | Out-Null
+        
+        # Each action/phase under this package
+        $sortedActions = $pkg.Group | Sort-Object Phase
+        foreach ($act in $sortedActions) {
+            $actBorder = New-Object System.Windows.Controls.Border
+            $actBorder.Margin = [System.Windows.Thickness]::new(12,1,0,1)
+            $actBorder.Padding = [System.Windows.Thickness]::new(8,4,8,4)
+            
+            $actGrid = New-Object System.Windows.Controls.Grid
+            $actCol1 = New-Object System.Windows.Controls.ColumnDefinition; $actCol1.Width = [System.Windows.GridLength]::new(70)
+            $actCol2 = New-Object System.Windows.Controls.ColumnDefinition; $actCol2.Width = [System.Windows.GridLength]::new(1, [System.Windows.GridUnitType]::Star)
+            $actCol3 = New-Object System.Windows.Controls.ColumnDefinition; $actCol3.Width = [System.Windows.GridLength]::new(90)
+            $actGrid.ColumnDefinitions.Add($actCol1) | Out-Null
+            $actGrid.ColumnDefinitions.Add($actCol2) | Out-Null
+            $actGrid.ColumnDefinitions.Add($actCol3) | Out-Null
+            
+            # Phase label
+            $phaseText = New-Object System.Windows.Controls.TextBlock
+            $phaseText.Text = $act.Phase; $phaseText.FontSize = 11
+            $phaseText.Foreground = $bc.ConvertFromString("#94a3b8")
+            $phaseText.VerticalAlignment = "Center"
+            $phaseText.FontFamily = New-Object System.Windows.Media.FontFamily("Segoe UI")
+            [System.Windows.Controls.Grid]::SetColumn($phaseText, 0)
+            
+            # Progress bar
+            $progBorder = New-Object System.Windows.Controls.Border
+            $progBorder.VerticalAlignment = "Center"
+            $progBorder.Margin = [System.Windows.Thickness]::new(4,0,8,0)
+            [System.Windows.Controls.Grid]::SetColumn($progBorder, 1)
+            
+            $progBar = New-Object System.Windows.Controls.ProgressBar
+            $progBar.Height = 10
+            $progBar.Minimum = 0; $progBar.Maximum = 100
+            $progBar.Value = [Math]::Min($act.SuccessRate, 100)
+            $progBar.Background = $bc.ConvertFromString("#232346")
+            $progBar.BorderThickness = [System.Windows.Thickness]::new(0)
+            
+            $progColor = if ($act.SuccessRate -ge 90) { "#a6e3a1" } elseif ($act.SuccessRate -ge 70) { "#f9e2af" } else { "#f38ba8" }
+            $progBar.Foreground = $bc.ConvertFromString($progColor)
+            $progBorder.Child = $progBar
+            
+            # Stats text
+            $statsText = New-Object System.Windows.Controls.TextBlock
+            $statsText.FontSize = 10; $statsText.VerticalAlignment = "Center"
+            $statsText.HorizontalAlignment = "Right"
+            $statsText.FontFamily = New-Object System.Windows.Media.FontFamily("Segoe UI")
+            $statsText.Foreground = $bc.ConvertFromString($progColor)
+            $statsText.FontWeight = "SemiBold"
+            $statsText.Text = "$($act.SuccessRate)% ($($act.Fixed)/$($act.Relevant))"
+            [System.Windows.Controls.Grid]::SetColumn($statsText, 2)
+            
+            # Tag for drill-down on click
+            $actBorder.Tag = $act
+            $actBorder.Cursor = [System.Windows.Input.Cursors]::Hand
+            $actBorder.Add_MouseEnter({ $this.Background = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#1e293b") })
+            $actBorder.Add_MouseLeave({ $this.Background = [System.Windows.Media.Brushes]::Transparent })
+            $actBorder.Add_MouseLeftButtonUp({
+                $a = $this.Tag
+                if ($a -and $a.ActionId) {
+                    try {
+                        $data = Get-ActionStatus -ActionId $a.ActionId
+                        $actionLabel = "$($a.Name) (Action $($a.ActionId))"
+                        $label = "$($a.Package) - $($a.Phase)"
+                        $tab = New-ActionTab -TabLabel $label -ActionLabel $actionLabel -Data $data
+                        $script:tabActions.Items.Add($tab) | Out-Null
+                        $script:tabActions.SelectedItem = $tab
+                        $script:lblStatus.Text = "[OK] Drilled into $($a.Phase) for $($a.Package)"
+                    } catch {
+                        $script:lblStatus.Text = "[ERR] Could not load action: $($_.Exception.Message)"
+                    }
+                }
+            })
+            
+            $actGrid.Children.Add($phaseText) | Out-Null
+            $actGrid.Children.Add($progBorder) | Out-Null
+            $actGrid.Children.Add($statsText) | Out-Null
+            $actBorder.Child = $actGrid
+            $pkgStack.Children.Add($actBorder) | Out-Null
+        }
+    }
+    
+    $pkgScroll.Content = $pkgStack
+    $pkgGrid.Children.Add($pkgTitle) | Out-Null
+    $pkgGrid.Children.Add($pkgScroll) | Out-Null
+    $pkgBorder.Child = $pkgGrid
+    
+    $chartsGrid.Children.Add($barBorder) | Out-Null
+    $chartsGrid.Children.Add($pkgBorder) | Out-Null
+    
+    # ── Per-Action Data Grid ──
+    $gridBorder = New-Object System.Windows.Controls.Border
+    $gridBorder.Background = $bc.ConvertFromString("#141425")
+    $gridBorder.CornerRadius = [System.Windows.CornerRadius]::new(10)
+    $gridBorder.Padding = [System.Windows.Thickness]::new(8)
+    $gridBorder.Margin = [System.Windows.Thickness]::new(0,10,0,0)
+    $gridBorder.BorderBrush = $bc.ConvertFromString("#232346")
+    $gridBorder.BorderThickness = [System.Windows.Thickness]::new(1)
+    [System.Windows.Controls.Grid]::SetRow($gridBorder, 2)
+    
+    $gridInner = New-Object System.Windows.Controls.Grid
+    $gridTitle = New-Object System.Windows.Controls.TextBlock
+    $headerText = if ($DateRange) { "ACTION DETAILS - $DateRange" } else { "ACTION DETAILS - LAST $DaysBack DAYS" }
+    $gridTitle.Text = $headerText; $gridTitle.FontSize = 14; $gridTitle.FontWeight = "SemiBold"
+    $gridTitle.Foreground = $bc.ConvertFromString("#89b4fa")
+    $gridTitle.Margin = [System.Windows.Thickness]::new(4,2,0,4); $gridTitle.VerticalAlignment = "Top"
+    $gridTitle.FontFamily = New-Object System.Windows.Media.FontFamily("Segoe UI")
+    
+    $dg = New-Object System.Windows.Controls.DataGrid
+    $dg.Margin = [System.Windows.Thickness]::new(0,26,0,0)
+    $dg.AutoGenerateColumns = $false; $dg.IsReadOnly = $true; $dg.CanUserSortColumns = $true
+    $dg.SelectionMode = "Single"; $dg.FontSize = 12
+    $dg.Background = $bc.ConvertFromString("#0f0f1a"); $dg.Foreground = $bc.ConvertFromString("#cdd6f4")
+    $dg.BorderBrush = $bc.ConvertFromString("#313244")
+    $dg.RowBackground = $bc.ConvertFromString("#141425")
+    $dg.AlternatingRowBackground = $bc.ConvertFromString("#1a1a2e")
+    $dg.GridLinesVisibility = "Horizontal"
+    $dg.HorizontalGridLinesBrush = $bc.ConvertFromString("#232336")
+    $dg.HeadersVisibility = "Column"
+    
+    # Style column headers for dark theme
+    $headerStyle = New-Object System.Windows.Style([System.Windows.Controls.Primitives.DataGridColumnHeader])
+    $headerStyle.Setters.Add((New-Object System.Windows.Setter([System.Windows.Controls.Control]::BackgroundProperty, $bc.ConvertFromString("#1e293b"))))
+    $headerStyle.Setters.Add((New-Object System.Windows.Setter([System.Windows.Controls.Control]::ForegroundProperty, $bc.ConvertFromString("#e2e8f0"))))
+    $headerStyle.Setters.Add((New-Object System.Windows.Setter([System.Windows.Controls.Control]::FontWeightProperty, [System.Windows.FontWeights]::SemiBold)))
+    $headerStyle.Setters.Add((New-Object System.Windows.Setter([System.Windows.Controls.Control]::PaddingProperty, [System.Windows.Thickness]::new(8,6,8,6))))
+    $headerStyle.Setters.Add((New-Object System.Windows.Setter([System.Windows.Controls.Control]::BorderBrushProperty, $bc.ConvertFromString("#313244"))))
+    $headerStyle.Setters.Add((New-Object System.Windows.Setter([System.Windows.Controls.Control]::BorderThicknessProperty, [System.Windows.Thickness]::new(0,0,1,1))))
+    $dg.ColumnHeaderStyle = $headerStyle
+    
+    @(
+        @{H="Package"; B="Package"; W="*"},
+        @{H="Phase"; B="Phase"; W="100"},
+        @{H="Relevant"; B="Relevant"; W="80"},
+        @{H="Fixed"; B="Fixed"; W="70"},
+        @{H="Failed"; B="Failed"; W="70"},
+        @{H="Running"; B="Running"; W="70"},
+        @{H="Pending"; B="Pending"; W="70"},
+        @{H="Success %"; B="SuccessRate"; W="85"}
+    ) | ForEach-Object {
+        $col = New-Object System.Windows.Controls.DataGridTextColumn
+        $col.Header = $_.H
+        $col.Binding = New-Object System.Windows.Data.Binding($_.B)
+        if ($_.W -eq "*") { $col.Width = New-Object System.Windows.Controls.DataGridLength(1, [System.Windows.Controls.DataGridLengthUnitType]::Star) }
+        else { $col.Width = [int]$_.W }
+        $dg.Columns.Add($col)
+    }
+    
+    # Sort by success rate ascending (worst first) for visibility
+    $sorted = $Results | Sort-Object SuccessRate
+    $dg.ItemsSource = @($sorted)
+    
+    # Double-click a row to drill into that action
+    $dg.Add_MouseDoubleClick({
+        param($s, $e)
+        $row = $s.SelectedItem
+        if ($row -and $row.ActionId) {
+            try {
+                $data = Get-ActionStatus -ActionId $row.ActionId
+                $actionLabel = "$($row.Name) (Action $($row.ActionId))"
+                $label = "$($row.Package) - $($row.Phase)"
+                $tab = New-ActionTab -TabLabel $label -ActionLabel $actionLabel -Data $data
+                $tabActions.Items.Add($tab) | Out-Null
+                $tabActions.SelectedItem = $tab
+                $script:lblStatus.Text = "[OK] Drilled into action $($row.ActionId)"
+            } catch {
+                $script:lblStatus.Text = "[ERR] Could not load action $($row.ActionId): $($_.Exception.Message)"
+            }
+        }
+    })
+    
+    $gridInner.Children.Add($gridTitle) | Out-Null
+    $gridInner.Children.Add($dg) | Out-Null
+    $gridBorder.Child = $gridInner
+    
+    $mainGrid.Children.Add($statsPanel) | Out-Null
+    $mainGrid.Children.Add($chartsGrid) | Out-Null
+    $mainGrid.Children.Add($gridBorder) | Out-Null
+    
+    $tabItem.Content = $mainGrid
+    
+    # Store for export
+    $script:TabData["Weekly Report"] = @{ Data = @{ Endpoints = $sorted }; Filter = "All" }
+    
+    return $tabItem
+}
+
+# ─── (Weekly demo data removed for production) ────────────────────────────────
+
+function Show-WeeklyReportDialog {
+    $defaultEnd = Get-Date
+    $defaultStart = $defaultEnd.AddDays(-7)
+    
+    $dlgXamlStr = @"
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Weekly Report Settings" Height="320" Width="460"
+        WindowStartupLocation="CenterOwner" Background="#0f0f1a" Foreground="#cdd6f4"
+        ResizeMode="NoResize">
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="16"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="16"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="16"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        
+        <TextBlock Text="Site Name:" Grid.Row="0" VerticalAlignment="Center" FontSize="14" Foreground="#bac2de"/>
+        <TextBox x:Name="txtSite" Grid.Row="0" Grid.Column="1" Margin="12,0,0,0" FontSize="14"
+                 Background="#1a1a2e" Foreground="#cdd6f4" BorderBrush="#313244" Padding="8,6"
+                 ToolTip="Your BigFix site name (partial match OK)"/>
+        
+        <TextBlock Text="Start Date:" Grid.Row="2" VerticalAlignment="Center" FontSize="14" Foreground="#bac2de"/>
+        <DatePicker x:Name="dpStart" Grid.Row="2" Grid.Column="1" Margin="12,0,0,0" FontSize="13"
+                    Background="#1a1a2e" Foreground="#1e1e2e" BorderBrush="#313244"/>
+        
+        <TextBlock Text="End Date:" Grid.Row="4" VerticalAlignment="Center" FontSize="14" Foreground="#bac2de"/>
+        <DatePicker x:Name="dpEnd" Grid.Row="4" Grid.Column="1" Margin="12,0,0,0" FontSize="13"
+                    Background="#1a1a2e" Foreground="#1e1e2e" BorderBrush="#313244"/>
+        
+        <StackPanel Grid.Row="8" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="btnCancel" Content="Cancel" Background="#313244" Foreground="#cdd6f4" 
+                    Padding="16,8" Margin="0,0,8,0" FontWeight="SemiBold" FontSize="13"/>
+            <Button x:Name="btnGenerate" Content="Generate Report" Background="#cba6f7" Foreground="#1e1e2e"
+                    Padding="16,8" FontWeight="SemiBold" FontSize="13"/>
+        </StackPanel>
+    </Grid>
+</Window>
+"@
+    
+    [xml]$dlgXml = $dlgXamlStr
+    $dlgReader = (New-Object System.Xml.XmlNodeReader $dlgXml)
+    $dlg = [Windows.Markup.XamlReader]::Load($dlgReader)
+    
+    $dlgSite = $dlg.FindName("txtSite")
+    $dlgStart = $dlg.FindName("dpStart")
+    $dlgEnd = $dlg.FindName("dpEnd")
+    $dlgCancel = $dlg.FindName("btnCancel")
+    $dlgGenerate = $dlg.FindName("btnGenerate")
+    
+    # Set defaults: last 7 days
+    $dlgStart.SelectedDate = $defaultStart
+    $dlgEnd.SelectedDate = $defaultEnd
+    
+    $script:WeeklyResult = $null
+    
+    # Auto-lock end date to 7 days after start when start changes
+    $dlgStart.Add_SelectedDateChanged({
+        $s = $dlgStart.SelectedDate
+        if ($s) {
+            $dlgEnd.SelectedDate = $s.AddDays(7)
+            $dlgEnd.DisplayDateStart = $s
+            $dlgEnd.DisplayDateEnd = $s.AddDays(7)
+        }
+    })
+    
+    # Also constrain end date picker on load
+    $dlgEnd.DisplayDateStart = $defaultStart
+    $dlgEnd.DisplayDateEnd = $defaultStart.AddDays(7)
+    
+    $dlgCancel.Add_Click({ $dlg.Close() })
+    $dlgGenerate.Add_Click({
+        $startDate = $dlgStart.SelectedDate
+        $endDate = $dlgEnd.SelectedDate
+        if (-not $startDate) { $startDate = $defaultStart }
+        if (-not $endDate) { $endDate = $defaultEnd }
+        
+        $daysBack = [math]::Ceiling(($endDate - $startDate).TotalDays)
+        if ($daysBack -lt 1) { $daysBack = 7 }
+        if ($daysBack -gt 7) { $daysBack = 7; $endDate = $startDate.AddDays(7) }
+        
+        $script:WeeklyResult = @{
+            Site = $dlgSite.Text.Trim()
+            Days = $daysBack
+            StartDate = $startDate
+            EndDate = $endDate
+        }
+        $dlg.Close()
+    })
+    
+    $dlg.ShowDialog() | Out-Null
+    return $script:WeeklyResult
+}
+
+# ─── Event Handlers ───────────────────────────────────────────────────────────
 
 $btnConnect.Add_Click({
     try {
+        Write-CMLog "Connecting to server: $($txtServer.Text) as $($txtUser.Text)"
         $lblStatus.Text = "Testing connection to $($txtServer.Text)..."
         $window.Dispatcher.Invoke([Action]{}, [System.Windows.Threading.DispatcherPriority]::Render)
         Invoke-BigFixAPI "/login" | Out-Null
+        Write-CMLog "Connected to BigFix server successfully"
         $lblStatus.Text = "[OK] Connected to BigFix server"
         $btnFetch.IsEnabled = $true
     } catch {
+        Write-CMLog "Connection failed: $($_.Exception.Message)" -Severity Error
         $lblStatus.Text = "[ERR] Connection failed: $($_.Exception.Message)"
     }
 })
@@ -815,6 +1496,7 @@ $btnFetch.Add_Click({
     if (-not $input) { $lblStatus.Text = "[!] Enter Action ID(s), comma-separated"; return }
     
     $ids = $input -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+    Write-CMLog "Fetching status for action(s): $($ids -join ', ')"
     
     $tabActions.Items.Clear()
     $script:TabData = @{}
@@ -866,7 +1548,50 @@ $btnExport.Add_Click({
     $dlg.FileName = "BigFix_$($tabKey -replace '\s','_')_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
     if ($dlg.ShowDialog() -eq $true) {
         $td.Data.Endpoints | Export-Csv -Path $dlg.FileName -NoTypeInformation
+        Write-CMLog "Exported $tabKey to $($dlg.FileName) ($($td.Data.Endpoints.Count) rows)"
         $lblStatus.Text = "[OK] Exported $tabKey to $($dlg.FileName)"
+    }
+})
+
+$btnWeekly.Add_Click({
+    $settings = Show-WeeklyReportDialog
+    if (-not $settings) { return }
+    
+    try {
+        if (-not $settings.Site) { $lblStatus.Text = "[!] Site name is required"; return }
+        
+        Write-CMLog "Generating weekly report - Site: $($settings.Site), Range: $($settings.StartDate.ToString('MM/dd/yyyy')) to $($settings.EndDate.ToString('MM/dd/yyyy')) ($($settings.Days) days)"
+        $actions = Get-SiteActions -SiteName $settings.Site -DaysBack $settings.Days
+        if ($actions.Count -eq 0) {
+            $lblStatus.Text = "[!] No 'Update:' actions found in site '$($settings.Site)' for the last $($settings.Days) days"
+            return
+        }
+        
+        $lblStatus.Text = "Found $($actions.Count) actions, fetching statuses..."
+        $window.Dispatcher.Invoke([Action]{}, [System.Windows.Threading.DispatcherPriority]::Render)
+        
+        $results = Build-WeeklyReport -Actions $actions -SiteName $settings.Site -DaysBack $settings.Days
+        
+        # Add weekly report tab (prepend, keep existing action tabs)
+        $dateRangeStr = if ($settings.StartDate -and $settings.EndDate) { "$($settings.StartDate.ToString('MM/dd/yyyy')) - $($settings.EndDate.ToString('MM/dd/yyyy'))" } else { "" }
+        $weeklyTab = New-WeeklyReportTab -Results $results -SiteName $settings.Site -DaysBack $settings.Days -DateRange $dateRangeStr
+        
+        # Remove existing weekly tab if present
+        $existing = $tabActions.Items | Where-Object { $_.Header -eq "Weekly Report" }
+        if ($existing) { $tabActions.Items.Remove($existing) }
+        
+        $tabActions.Items.Insert(0, $weeklyTab)
+        $tabActions.SelectedIndex = 0
+        
+        $dateRange = if ($settings.StartDate -and $settings.EndDate) { "$($settings.StartDate.ToString('MM/dd')) - $($settings.EndDate.ToString('MM/dd'))" } else { "last $($settings.Days) days" }
+        $lblActionName.Text = "$($results.Count) actions from '$($settings.Site)' - $dateRange"
+        $btnExport.IsEnabled = $true
+        Write-CMLog "Weekly report complete: $($results.Count) actions processed"
+        $lblStatus.Text = "[OK] Weekly report generated: $($actions.Count) actions, $($results.Count) with status"
+        $lblLastRefresh.Text = "Report: $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
+    } catch {
+        Write-CMLog "Weekly report failed at line $($_.InvocationInfo.ScriptLineNumber): $($_.Exception.Message)" -Severity Error
+        $lblStatus.Text = "[ERR] Weekly report failed: $($_.Exception.Message) at $($_.InvocationInfo.ScriptLineNumber)"
     }
 })
 
