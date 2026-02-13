@@ -102,7 +102,6 @@ The tool maps BigFix's various status strings to standardized categories:
 | ⏰ Expired | Expired |
 
 ## Notes
-- Self-signed certs are handled automatically (common in BigFix deployments)
 - Completion % always excludes "Not Relevant" endpoints from the denominator
 - Timeline chart needs 2+ completed endpoints to render the S-curve
 - All API calls and errors are logged in CMTrace format for troubleshooting
