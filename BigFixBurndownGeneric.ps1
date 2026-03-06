@@ -189,6 +189,8 @@ function Build-BurndownData {
                      ToolTip="Override total machine count (leave blank to auto-calculate from action data)"/>
             <Button x:Name="btnGenerate" Content="Generate Burndown" Width="180" Height="28" Margin="16,0,0,0"
                     Background="#89b4fa" Foreground="#1e1e2e" BorderBrush="#89b4fa" FontFamily="Segoe UI" FontWeight="SemiBold" Cursor="Hand"/>
+            <CheckBox x:Name="chkCompleted" Content="Show Completed" IsChecked="True" Foreground="#a6e3a1"
+                      VerticalAlignment="Center" Margin="20,0,0,0" FontFamily="Segoe UI"/>
         </StackPanel>
 
         <!-- Chart Area -->
@@ -245,6 +247,7 @@ $txtActionIds = $window.FindName("txtActionIds")
 $txtTotal     = $window.FindName("txtTotal")
 $btnConnect   = $window.FindName("btnConnect")
 $btnGenerate  = $window.FindName("btnGenerate")
+$chkCompleted = $window.FindName("chkCompleted")
 $btnExport    = $window.FindName("btnExport")
 $chartHost    = $window.FindName("chartHost")
 $lblStatus    = $window.FindName("lblStatus")
@@ -468,6 +471,18 @@ $btnExport.Add_Click({
         $lblStatus.Text = "Exported to $($dlg.FileName)"
         Write-CMLog "Exported CSV to $($dlg.FileName)"
     }
+})
+
+# --- Toggle Completed Series -------------------------------------------------
+$chkCompleted.Add_Checked({
+    $chart.Series["Completed"].Enabled = $true
+    $chart.Series["InstallFill"].Enabled = $true
+    $area.AxisY2.Enabled = [System.Windows.Forms.DataVisualization.Charting.AxisEnabled]::True
+})
+$chkCompleted.Add_Unchecked({
+    $chart.Series["Completed"].Enabled = $false
+    $chart.Series["InstallFill"].Enabled = $false
+    $area.AxisY2.Enabled = [System.Windows.Forms.DataVisualization.Charting.AxisEnabled]::False
 })
 
 # --- Show Window -------------------------------------------------------------
