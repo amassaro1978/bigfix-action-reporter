@@ -1,4 +1,4 @@
-﻿?#Requires -Version 5.1
+﻿??#Requires -Version 5.1
 <#
 .SYNOPSIS
     BigFix M365 Burndown Chart - Visualize legacy Office version decline over time
@@ -183,10 +183,10 @@ function Build-BurndownData {
             <TextBox x:Name="txtActionIds" Width="340" Height="28" Background="#313244" Foreground="#cdd6f4"
                      BorderBrush="#45475a" FontFamily="Segoe UI" Padding="6,3" VerticalContentAlignment="Center"
                      ToolTip="Enter Action IDs separated by commas, e.g.: 12345, 12346, 12347, 12348"/>
-            <TextBlock Text="Total machines:" Foreground="#a6adc8" VerticalAlignment="Center" Margin="16,0,8,0" FontFamily="Segoe UI"/>
+            <TextBlock Text="Total (optional):" Foreground="#a6adc8" VerticalAlignment="Center" Margin="16,0,8,0" FontFamily="Segoe UI"/>
             <TextBox x:Name="txtTotal" Width="80" Height="28" Background="#313244" Foreground="#cdd6f4"
                      BorderBrush="#45475a" FontFamily="Segoe UI" Padding="6,3" VerticalContentAlignment="Center"
-                     ToolTip="Total number of machines being migrated (for burndown calculation)"/>
+                     ToolTip="Override total machine count (leave blank to auto-calculate from action data)"/>
             <Button x:Name="btnGenerate" Content="Generate Burndown" Width="180" Height="28" Margin="16,0,0,0"
                     Background="#89b4fa" Foreground="#1e1e2e" BorderBrush="#89b4fa" FontFamily="Segoe UI" FontWeight="SemiBold" Cursor="Hand"/>
         </StackPanel>
@@ -372,14 +372,6 @@ $btnGenerate.Add_Click({
             return
         }
         
-        $totalMachines = 0
-        if ($txtTotal.Text -match '^\d+$') {
-            $totalMachines = [int]$txtTotal.Text
-        } else {
-            $lblStatus.Text = "Enter a valid total machine count."
-            return
-        }
-        
         # Fetch all actions
         $allEndpoints = @()
         $actionNames = @()
@@ -398,6 +390,14 @@ $btnGenerate.Add_Click({
             $parsed = Parse-StatusData $statusData
             $allEndpoints += $parsed
             Write-CMLog "Action $id ($title): $($parsed.Count) endpoints"
+        }
+        
+        # Auto-calculate total from unique computers across all actions
+        # Use manual override if provided, otherwise count unique machines
+        $uniqueComputers = $allEndpoints | Select-Object -Property ComputerName -Unique
+        $totalMachines = $uniqueComputers.Count
+        if ($txtTotal.Text -match '^\d+$' -and [int]$txtTotal.Text -gt 0) {
+            $totalMachines = [int]$txtTotal.Text
         }
         
         $lblStatus.Text = "Building burndown data..."
