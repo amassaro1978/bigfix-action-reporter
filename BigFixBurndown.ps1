@@ -19,12 +19,12 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Windows.Forms.DataVisualization
 Add-Type -AssemblyName WindowsFormsIntegration
 
-# ─── Configuration ───────────────────────────────────────────────────────────
+# --- Configuration -----------------------------------------------------------
 $script:Config = @{
     ServerUrl = ""; Username = ""; Password = ""; ApiBase = "/api"
 }
 
-# ─── CMTrace Logging ─────────────────────────────────────────────────────────
+# --- CMTrace Logging ---------------------------------------------------------
 $script:LogFile = "C:\temp\BigFixBurndown.log"
 $script:LogComponent = "BigFixBurndown"
 
@@ -47,7 +47,7 @@ function Write-CMLog {
     } catch { }
 }
 
-# ─── API Functions ───────────────────────────────────────────────────────────
+# --- API Functions -----------------------------------------------------------
 function Get-BigFixCredential {
     $secPass = $txtPass.SecurePassword
     return New-Object System.Management.Automation.PSCredential($txtUser.Text, $secPass)
@@ -79,7 +79,7 @@ public class TrustAllCertsPolicy : ICertificatePolicy {
     }
 }
 
-# ─── Parse Status Data ───────────────────────────────────────────────────────
+# --- Parse Status Data -------------------------------------------------------
 function Parse-StatusData {
     param($StatusData)
     $endpoints = @()
@@ -99,7 +99,7 @@ function Parse-StatusData {
     return $endpoints
 }
 
-# ─── Build Burndown Data ────────────────────────────────────────────────────
+# --- Build Burndown Data ----------------------------------------------------
 function Build-BurndownData {
     param($AllEndpoints, [int]$TotalMachines)
     
@@ -141,7 +141,7 @@ function Build-BurndownData {
     }
 }
 
-# ─── WPF Window ──────────────────────────────────────────────────────────────
+# --- WPF Window --------------------------------------------------------------
 [xml]$xaml = @"
 <Window
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -253,7 +253,7 @@ $lblInstalled = $window.FindName("lblInstalled")
 $lblPercent   = $window.FindName("lblPercent")
 $lblDupes     = $window.FindName("lblDupes")
 
-# ─── Create Chart ────────────────────────────────────────────────────────────
+# --- Create Chart ------------------------------------------------------------
 $chart = New-Object System.Windows.Forms.DataVisualization.Charting.Chart
 $chart.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#181825")
 $chart.Dock = [System.Windows.Forms.DockStyle]::Fill
@@ -346,10 +346,10 @@ $installArea.IsVisibleInLegend = $false
 
 $chartHost.Child = $chart
 
-# ─── Store results for export ────────────────────────────────────────────────
+# --- Store results for export ------------------------------------------------
 $script:BurndownResult = $null
 
-# ─── Connect Button ──────────────────────────────────────────────────────────
+# --- Connect Button ----------------------------------------------------------
 $btnConnect.Add_Click({
     try {
         $lblStatus.Text = "Connecting to BigFix server..."
@@ -363,7 +363,7 @@ $btnConnect.Add_Click({
     }
 })
 
-# ─── Generate Burndown ──────────────────────────────────────────────────────
+# --- Generate Burndown ------------------------------------------------------
 $btnGenerate.Add_Click({
     try {
         $ids = $txtActionIds.Text -split "," | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" }
@@ -454,7 +454,7 @@ $btnGenerate.Add_Click({
     }
 })
 
-# ─── Export CSV ──────────────────────────────────────────────────────────────
+# --- Export CSV --------------------------------------------------------------
 $btnExport.Add_Click({
     if (-not $script:BurndownResult) {
         $lblStatus.Text = "Generate a burndown first."
@@ -470,5 +470,5 @@ $btnExport.Add_Click({
     }
 })
 
-# ─── Show Window ─────────────────────────────────────────────────────────────
+# --- Show Window -------------------------------------------------------------
 $window.ShowDialog() | Out-Null
