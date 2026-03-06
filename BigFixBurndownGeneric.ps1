@@ -1,4 +1,4 @@
-﻿??#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     BigFix Deployment Burndown Chart - Visualize deployment progress over time
@@ -7,7 +7,7 @@
     results, deduplicates by computer, and plots a burndown chart showing remaining vs.
     completed endpoints over time.
 .NOTES
-    Author: Anthony Massaro / thomasShartalter
+    Author: Anthony Massaro
     Date: 2026-03-06
     Based on BigFix Action Reporter v6
 #>
