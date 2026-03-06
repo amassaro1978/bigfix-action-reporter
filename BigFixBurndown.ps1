@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     BigFix M365 Burndown Chart - Visualize legacy Office version decline over time
@@ -201,25 +201,25 @@ function Build-BurndownData {
             <Border Background="#313244" CornerRadius="6" Padding="16,10" Margin="0,0,12,0">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="Legacy Remaining:" Foreground="#a6adc8" FontFamily="Segoe UI" Margin="0,0,8,0"/>
-                    <TextBlock x:Name="lblRemaining" Text="—" Foreground="#f38ba8" FontFamily="Segoe UI" FontWeight="Bold" FontSize="16"/>
+                    <TextBlock x:Name="lblRemaining" Text="--" Foreground="#f38ba8" FontFamily="Segoe UI" FontWeight="Bold" FontSize="16"/>
                 </StackPanel>
             </Border>
             <Border Background="#313244" CornerRadius="6" Padding="16,10" Margin="0,0,12,0">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="M365 Installed:" Foreground="#a6adc8" FontFamily="Segoe UI" Margin="0,0,8,0"/>
-                    <TextBlock x:Name="lblInstalled" Text="—" Foreground="#a6e3a1" FontFamily="Segoe UI" FontWeight="Bold" FontSize="16"/>
+                    <TextBlock x:Name="lblInstalled" Text="--" Foreground="#a6e3a1" FontFamily="Segoe UI" FontWeight="Bold" FontSize="16"/>
                 </StackPanel>
             </Border>
             <Border Background="#313244" CornerRadius="6" Padding="16,10" Margin="0,0,12,0">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="Completion:" Foreground="#a6adc8" FontFamily="Segoe UI" Margin="0,0,8,0"/>
-                    <TextBlock x:Name="lblPercent" Text="—" Foreground="#f9e2af" FontFamily="Segoe UI" FontWeight="Bold" FontSize="16"/>
+                    <TextBlock x:Name="lblPercent" Text="--" Foreground="#f9e2af" FontFamily="Segoe UI" FontWeight="Bold" FontSize="16"/>
                 </StackPanel>
             </Border>
             <Border Background="#313244" CornerRadius="6" Padding="16,10" Margin="0,0,12,0">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="Duplicates Removed:" Foreground="#a6adc8" FontFamily="Segoe UI" Margin="0,0,8,0"/>
-                    <TextBlock x:Name="lblDupes" Text="—" Foreground="#6c7086" FontFamily="Segoe UI" FontWeight="Bold"/>
+                    <TextBlock x:Name="lblDupes" Text="--" Foreground="#6c7086" FontFamily="Segoe UI" FontWeight="Bold"/>
                 </StackPanel>
             </Border>
         </StackPanel>
@@ -292,7 +292,7 @@ $area.AxisY2.Minimum = 0
 
 $chart.ChartAreas.Add($area)
 
-# Burndown line (legacy remaining) — red, declining
+# Burndown line (legacy remaining) -- red, declining
 $burnSeries = New-Object System.Windows.Forms.DataVisualization.Charting.Series "LegacyRemaining"
 $burnSeries.ChartType = [System.Windows.Forms.DataVisualization.Charting.SeriesChartType]::Spline
 $burnSeries.Color = [System.Drawing.ColorTranslator]::FromHtml("#f38ba8")
@@ -311,7 +311,7 @@ $burnArea.BorderColor = [System.Drawing.Color]::Transparent
 $burnArea.BorderWidth = 0
 $chart.Series.Add($burnArea)
 
-# M365 installed line — green, rising
+# M365 installed line -- green, rising
 $installSeries = New-Object System.Windows.Forms.DataVisualization.Charting.Series "M365Installed"
 $installSeries.ChartType = [System.Windows.Forms.DataVisualization.Charting.SeriesChartType]::Spline
 $installSeries.Color = [System.Drawing.ColorTranslator]::FromHtml("#a6e3a1")
@@ -441,12 +441,12 @@ $btnGenerate.Add_Click({
         $lblRemaining.Text = "$($lastRow.LegacyRemaining)"
         $lblInstalled.Text = "$($result.UniqueInstalls)"
         $pct = if ($totalMachines -gt 0) { [Math]::Round(($result.UniqueInstalls / $totalMachines) * 100, 1) } else { 0 }
-        $lblPercent.Text = "$pct%"
+        $lblPercent.Text = "${pct}%"
         $lblDupes.Text = "$($result.DuplicatesRemoved)"
         
         $actionList = ($actionNames | ForEach-Object { $_.Substring(0, [Math]::Min(40, $_.Length)) }) -join " | "
-        $lblStatus.Text = "Burndown generated: $($result.UniqueInstalls)/$totalMachines migrated ($pct%) — Actions: $actionList"
-        Write-CMLog "Burndown complete: $($result.UniqueInstalls)/$totalMachines ($pct%)"
+        $lblStatus.Text = "Burndown generated: $($result.UniqueInstalls)/$totalMachines migrated (${pct}%) - Actions: $actionList"
+        Write-CMLog "Burndown complete: $($result.UniqueInstalls)/$totalMachines (${pct}%)"
         
     } catch {
         $lblStatus.Text = "Error: $($_.Exception.Message)"
