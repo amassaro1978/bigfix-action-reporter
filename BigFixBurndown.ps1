@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+﻿?#Requires -Version 5.1
 <#
 .SYNOPSIS
     BigFix M365 Burndown Chart - Visualize legacy Office version decline over time
@@ -187,7 +187,7 @@ function Build-BurndownData {
             <TextBox x:Name="txtTotal" Width="80" Height="28" Background="#313244" Foreground="#cdd6f4"
                      BorderBrush="#45475a" FontFamily="Segoe UI" Padding="6,3" VerticalContentAlignment="Center"
                      ToolTip="Total number of machines being migrated (for burndown calculation)"/>
-            <Button x:Name="btnGenerate" Content="Generate Burndown" Width="150" Height="28" Margin="16,0,0,0"
+            <Button x:Name="btnGenerate" Content="Generate Burndown" Width="180" Height="28" Margin="16,0,0,0"
                     Background="#89b4fa" Foreground="#1e1e2e" BorderBrush="#89b4fa" FontFamily="Segoe UI" FontWeight="SemiBold" Cursor="Hand"/>
         </StackPanel>
 
@@ -293,7 +293,7 @@ $area.AxisY2.Minimum = 0
 $chart.ChartAreas.Add($area)
 
 # Burndown line (legacy remaining) -- red, declining
-$burnSeries = New-Object System.Windows.Forms.DataVisualization.Charting.Series "LegacyRemaining"
+$burnSeries = New-Object System.Windows.Forms.DataVisualization.Charting.Series "Legacy Remaining"
 $burnSeries.ChartType = [System.Windows.Forms.DataVisualization.Charting.SeriesChartType]::Spline
 $burnSeries.Color = [System.Drawing.ColorTranslator]::FromHtml("#f38ba8")
 $burnSeries.BorderWidth = 3
@@ -312,7 +312,7 @@ $burnArea.BorderWidth = 0
 $chart.Series.Add($burnArea)
 
 # M365 installed line -- green, rising
-$installSeries = New-Object System.Windows.Forms.DataVisualization.Charting.Series "M365Installed"
+$installSeries = New-Object System.Windows.Forms.DataVisualization.Charting.Series "M365 Installed"
 $installSeries.ChartType = [System.Windows.Forms.DataVisualization.Charting.SeriesChartType]::Spline
 $installSeries.Color = [System.Drawing.ColorTranslator]::FromHtml("#a6e3a1")
 $installSeries.BorderWidth = 3
@@ -407,26 +407,26 @@ $btnGenerate.Add_Click({
         $script:BurndownResult = $result
         
         # Update chart
-        $chart.Series["LegacyRemaining"].Points.Clear()
+        $chart.Series["Legacy Remaining"].Points.Clear()
         $chart.Series["BurndownFill"].Points.Clear()
-        $chart.Series["M365Installed"].Points.Clear()
+        $chart.Series["M365 Installed"].Points.Clear()
         $chart.Series["InstallFill"].Points.Clear()
         
         # Add starting point (day before first install = total machines)
         if ($result.BurndownData.Count -gt 0) {
             $firstDate = [datetime]$result.BurndownData[0].Date
             $startLabel = $firstDate.AddDays(-1).ToString("MM/dd")
-            $chart.Series["LegacyRemaining"].Points.AddXY($startLabel, $totalMachines) | Out-Null
+            $chart.Series["Legacy Remaining"].Points.AddXY($startLabel, $totalMachines) | Out-Null
             $chart.Series["BurndownFill"].Points.AddXY($startLabel, $totalMachines) | Out-Null
-            $chart.Series["M365Installed"].Points.AddXY($startLabel, 0) | Out-Null
+            $chart.Series["M365 Installed"].Points.AddXY($startLabel, 0) | Out-Null
             $chart.Series["InstallFill"].Points.AddXY($startLabel, 0) | Out-Null
         }
         
         foreach ($row in $result.BurndownData) {
             $label = ([datetime]$row.Date).ToString("MM/dd")
-            $chart.Series["LegacyRemaining"].Points.AddXY($label, $row.LegacyRemaining) | Out-Null
+            $chart.Series["Legacy Remaining"].Points.AddXY($label, $row.LegacyRemaining) | Out-Null
             $chart.Series["BurndownFill"].Points.AddXY($label, $row.LegacyRemaining) | Out-Null
-            $chart.Series["M365Installed"].Points.AddXY($label, $row.TotalInstalled) | Out-Null
+            $chart.Series["M365 Installed"].Points.AddXY($label, $row.TotalInstalled) | Out-Null
             $chart.Series["InstallFill"].Points.AddXY($label, $row.TotalInstalled) | Out-Null
         }
         
